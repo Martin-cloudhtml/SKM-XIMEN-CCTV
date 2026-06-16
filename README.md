@@ -1,0 +1,266 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<title>SKM XIMEN附近週邊道路監控 NVR Ver1.0</title>
+
+<style>
+html, body {
+  margin:0;
+  height:100%;
+  background:#000;
+  font-family: system-ui;
+}
+
+/* 🖥️ 電腦監控牆 */
+.grid {
+  height:100vh;
+  display:grid;
+  grid-template-columns: repeat(auto-fit, minmax(33.33%, 1fr));
+  grid-auto-rows: 1fr;
+}
+
+.tile {
+  position:relative;
+  overflow:hidden;
+  cursor:pointer;
+}
+
+iframe {
+  position:absolute;
+  inset:0;
+  width:100%;
+  height:100%;
+  border:none;
+}
+
+/* CAM 標籤 */
+.label {
+  position:absolute;
+  top:8px;
+  left:8px;
+  z-index:2;
+
+  background:rgba(0,0,0,.55);
+  padding:6px 10px;
+  border-radius:8px;
+  font-size:12px;
+  color:#4ade80;
+  backdrop-filter: blur(4px);
+}
+
+/* 🕒 小畫面時間 */
+.time {
+  position:absolute;
+  bottom:8px;
+  right:8px;
+  z-index:2;
+
+  background:rgba(0,0,0,.6);
+  padding:4px 8px;
+  border-radius:6px;
+  font-size:12px;
+  color:#fff;
+  font-family: monospace;
+  backdrop-filter: blur(4px);
+}
+
+/* 🔴 主畫面 */
+#mainView {
+  position:fixed;
+  inset:0;
+  background:#000;
+  z-index:999;
+  display:none;
+}
+
+/* 主畫面 iframe */
+#mainFrame {
+  width:100%;
+  height:100%;
+  border:none;
+}
+
+/* 🔴 主畫面時間 */
+.mainTime {
+  position:fixed;
+  bottom:20px;
+  right:20px;
+  z-index:1001;
+
+  background:rgba(0,0,0,.65);
+  padding:6px 10px;
+  border-radius:8px;
+  font-size:14px;
+  color:#fff;
+  font-family: monospace;
+  backdrop-filter: blur(4px);
+}
+
+/* 左上控制 */
+.topLeft {
+  position:fixed;
+  top:10px;
+  left:10px;
+  z-index:1000;
+  display:none;
+  gap:10px;
+  align-items:center;
+}
+
+.backBtn {
+  background:rgba(0,0,0,.6);
+  border:1px solid #4ade80;
+  color:#4ade80;
+  padding:6px 10px;
+  border-radius:8px;
+  cursor:pointer;
+  font-size:12px;
+}
+
+.hint {
+  color:#aaa;
+  font-size:12px;
+}
+
+/* 📱 手機修正（只修變扁問題） */
+@media (max-width:768px){
+  .grid {
+    height:auto;
+    grid-template-columns: 1fr;
+    grid-auto-rows: auto;
+    gap:8px;
+    padding:8px;
+  }
+
+  .tile {
+    width:100%;
+    aspect-ratio:16 / 9;
+  }
+}
+</style>
+</head>
+
+<body>
+
+<div class="grid" id="grid"></div>
+
+<div id="mainView">
+  <div class="time mainTime" id="mainTime">--:--:--</div>
+  <iframe id="mainFrame"></iframe>
+</div>
+
+<div class="topLeft" id="topLeft">
+  <button class="backBtn" onclick="closeMain()">← 返回監控牆 (ESC)</button>
+  <div class="hint" id="camName"></div>
+</div>
+
+<script>
+
+const cams = [
+  { name:"CAM-01 南門路健康路一段 南向北", url:"https://trafficvideo.tainan.gov.tw/ef80a475" },
+  { name:"CAM-02 健康路一段 往家齊南商 西向東", url:"https://trafficvideo3.tainan.gov.tw/1e32f954" },
+  { name:"CAM-03 大林國宅 大同路健康路口 南向北", url:"https://trafficvideo.tainan.gov.tw/df17076a" },
+  { name:"CAM-04 西門路健康路一段路口 南向北", url:"https://trafficvideo2.tainan.gov.tw/82565bca" },
+  { name:"CAM-05 府連地下道前 五叉路口 東北向西南", url:"https://trafficvideo2.tainan.gov.tw/54b2e135" },
+  { name:"CAM-06 南門路府前路口 北向南", url:"https://trafficvideo.tainan.gov.tw/172021003100" },
+  { name:"CAM-07 府前路永福路口 北向南", url:"https://trafficvideo3.tainan.gov.tw/074f6684" },
+  { name:"CAM-08 府前路忠義路口 東向西", url:"https://trafficvideo.tainan.gov.tw/e2e14cfa" },
+  { name:"CAM-09 府前路西門路圓環口 西向東", url:"https://trafficvideo.tainan.gov.tw/172022001100" }
+];
+
+const grid = document.getElementById("grid");
+let currentIndex = -1;
+
+/* 建立監控牆 */
+cams.forEach((c,i)=>{
+
+  const tile = document.createElement("div");
+  tile.className = "tile";
+
+  tile.innerHTML = `
+    <div class="label">${c.name}</div>
+    <div class="time" id="time${i}">--:--:--</div>
+    <iframe src="${c.url}"></iframe>
+  `;
+
+  tile.onclick = () => openMain(i);
+
+  grid.appendChild(tile);
+});
+
+/* 🕒 GMT+8 時間更新 */
+function updateTime(){
+
+  const now = new Date();
+
+  const options = {
+    timeZone: "Asia/Taipei",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
+    hour12: false
+  };
+
+  const timeStr = new Intl.DateTimeFormat("zh-TW", options).format(now);
+
+  // 🟢 小畫面
+  cams.forEach((_,i)=>{
+    const el = document.getElementById("time"+i);
+    if(el) el.innerText = timeStr;
+  });
+
+  // 🔴 主畫面
+  const mainTime = document.getElementById("mainTime");
+  if(mainTime) mainTime.innerText = timeStr;
+}
+
+setInterval(updateTime, 1000);
+updateTime();
+
+/* 主畫面 */
+function openMain(i){
+  currentIndex = i;
+
+  document.getElementById("mainView").style.display = "block";
+  document.getElementById("mainFrame").src = cams[i].url;
+
+  document.getElementById("topLeft").style.display = "flex";
+  document.getElementById("camName").innerText = cams[i].name;
+}
+
+/* 關閉主畫面 */
+function closeMain(){
+  currentIndex = -1;
+
+  document.getElementById("mainView").style.display = "none";
+  document.getElementById("mainFrame").src = "";
+
+  document.getElementById("topLeft").style.display = "none";
+}
+
+/* 🧠 只在桌機啟用鍵盤 */
+const isTouchDevice =
+  ("ontouchstart" in window) ||
+  navigator.maxTouchPoints > 0;
+
+if (!isTouchDevice) {
+  window.addEventListener("keydown", (e) => {
+
+    if (e.key === "Escape") closeMain();
+
+    const num = parseInt(e.key);
+    if (num >= 1 && num <= cams.length) {
+      openMain(num - 1);
+    }
+  });
+}
+
+</script>
+
+</body>
+</html>
